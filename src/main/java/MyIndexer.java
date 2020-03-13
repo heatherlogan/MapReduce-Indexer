@@ -49,7 +49,7 @@ public class MyIndexer extends Configured implements Tool {
 		private MultipleOutputs output; 
 		protected void setup(Context context) throws IOException, InterruptedException {
 						
-			// load stopwords from given filename
+		// load stopwords from given filename
 		
 			URI[] stopwordpath = context.getCacheFiles();
 	        BufferedReader br = new BufferedReader(new FileReader(new File(stopwordpath[0].getPath()).getName()));
@@ -158,7 +158,7 @@ public class MyIndexer extends Configured implements Tool {
 	//						System.out.println(docName + "-" + String.valueOf(freq));
                         } catch (Exception e) {
                         	
-                        	System.out.println("=======EXCEPTION====" + stringFreq + "==" +  v.toString() );
+                        	System.out.println("EXCEPTION=" + stringFreq + "==" +  v.toString() );
                         	
                         }
 //                      
@@ -214,11 +214,13 @@ public class MyIndexer extends Configured implements Tool {
 		job.setReducerClass(Reduce.class);
 		
 	// adds the path to stopwords.txt to a distributed cache (first argument)
-		job.addCacheFile(new Path(args[0]).toUri());
+		String stopWordsPath = "src/main/resources/stopword-list.txt"; 
+
+		job.addCacheFile(new Path(stopWordsPath).toUri());
 
 		// sets file input to second argument
 		job.setInputFormatClass(TextInputFormat.class);
-		FileInputFormat.setInputPaths(job, new Path(args[1]));
+		FileInputFormat.setInputPaths(job, new Path(args[0]));
 
 		job.setOutputKeyClass(Text.class);
 		job.setOutputValueClass(Text.class);
@@ -227,7 +229,7 @@ public class MyIndexer extends Configured implements Tool {
 		LazyOutputFormat.setOutputFormatClass(job, TextOutputFormat.class);
 //		job.setOutputFormatClass(TextOutputFormat.class);
 		
-		FileOutputFormat.setOutputPath(job, new Path(args[2]));
+		FileOutputFormat.setOutputPath(job, new Path(args[1]));
 
 		return (job.waitForCompletion(true) ? 0 : 1);
 	}
