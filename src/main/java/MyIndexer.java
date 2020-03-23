@@ -29,24 +29,33 @@ import org.apache.hadoop.mapreduce.lib.output.LazyOutputFormat;
 import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
 import org.apache.hadoop.mapreduce.lib.input.FileSplit;
 import org.apache.hadoop.mapreduce.lib.output.MultipleOutputs;
+import org.apache.hadoop.mapreduce.Counter;
+import org.apache.hadoop.mapreduce.Counters;
 
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
 
 import utils.PorterStemmer;
 
+
 public class MyIndexer extends Configured implements Tool {
 	
 	
 	static class Map extends Mapper<LongWritable, Text, Text, Text> {
 		
-		private final static IntWritable one = new IntWritable(1);
-		public static final String Entry = null;
+		private final static IntWritable one = new IntWritable(1);		public static final String Entry = null;
 		private Text word = new Text();
 		private Set<String> stopWordList = new HashSet<String>();
 		PorterStemmer stemmer = new PorterStemmer();
 		private BufferedReader br;
 		private MultipleOutputs output; 
+		
+		static enum Counters{
+			NUM_RECORDS, 
+			DOC_LENGTH
+		}
+		
+		
 		protected void setup(Context context) throws IOException, InterruptedException {
 						
 		// load stopwords from given filename
@@ -62,17 +71,19 @@ public class MyIndexer extends Configured implements Tool {
 		@Override
 		public void map(LongWritable key, Text value, Context context) throws
 		IOException, InterruptedException {
-			
+						
 			HashMap<String, String[]> termFrequencyMap = new HashMap<String, String[]>();
 			int documentLength=0; 
 						
 			// split value input to filename and document contents
 			String line = value.toString();
-			String [] nameline = line.split("]]\n");
+			String [] nameline = line.split("]]");
+			 if (nameline.length == 1)
+				System.out.println(line);
 			String documentName = nameline[0].toLowerCase().replace("[", "").replace("]","");
 			
 			// remove punctuation from document text 
-			String documentContents = nameline[1].replaceAll("[^a-zA-Z ]", "").toLowerCase(); 
+			String documentContents = nameline.length > 1 ? nameline[1].replaceAll("[^a-zA-Z ]", "").toLowerCase() : ""; 
 			
 			StringTokenizer tokenizer = new StringTokenizer(documentContents);
 									
@@ -102,19 +113,24 @@ public class MyIndexer extends Configured implements Tool {
 				} 
 			} 
 			Text docL = new Text (String.valueOf(documentLength)); 
-            // adding * to document name to distinguish between outputs
+			context.getCounter(Counters.NUM_RECORDS).increment(1);
+			context.getCounter(Counters.DOC_LENGTH).increment(documentLength);
+            // adding : to document name to distinguish between outputs
 
 			context.write(new Text(documentName+":"), docL);
+			
 
 			// writing the term frequencies to a map
 			for (HashMap.Entry entry : termFrequencyMap.entrySet()) {
 //	            System.out.print(entry.getKey()+ "-->"); 
 	            String [] vals = (String[]) entry.getValue(); 
-	            String output = vals[0] + "--" + vals[1];	      
+	            String output = vals[0] + "-=-=-" + vals[1];	      
 	            Text k = new Text(entry.getKey().toString()); 
 
 	            context.write(k, new Text(output)); 
+	            
 	        }
+			
 		}
 	}
 
@@ -130,7 +146,7 @@ public class MyIndexer extends Configured implements Tool {
 				context) throws IOException, InterruptedException {
 		
 		
-			// ===== DEALING WITH DOCUMENT FREQUENCY =====
+			// dealing with document frequency
 			if (key.toString().endsWith(":")){				
 				for (Text v : values) {
 					String docName = key.toString().replace("*", "");
@@ -149,13 +165,14 @@ public class MyIndexer extends Configured implements Tool {
 //
 					for (Text v : values) {
 						
-						String[] tfList = v.toString().split("--"); 
+						String[] tfList = v.toString().split("-=-=-"); 
                         String docName = tfList[0];
                         String stringFreq = tfList[1].replaceAll("[^0-9]", "");
                         try { 
 	                        Integer freq = Integer.parseInt(stringFreq); 
 	                        unsortedFreq.put(docName, freq);
 	//						System.out.println(docName + "-" + String.valueOf(freq));
+	                        
                         } catch (Exception e) {
                         	
                         	System.out.println("EXCEPTION=" + stringFreq + "==" +  v.toString() );
@@ -163,17 +180,18 @@ public class MyIndexer extends Configured implements Tool {
                         }
 //                      
 					}
-                    HashMap<String, Integer> sortedFreq = unsortedFreq.entrySet().stream()
-                            .sorted(HashMap.Entry.comparingByValue(Comparator.reverseOrder()))
-                            .collect(Collectors.toMap(HashMap.Entry::getKey, HashMap.Entry::getValue,
-                                    (oldValue, newValue) -> oldValue, LinkedHashMap::new));
+					
+					
+//                    HashMap<String, Integer> sortedFreq = unsortedFreq.entrySet().stream()
+//                            .sorted(HashMap.Entry.comparingByValue(Comparator.reverseOrder()))
+//                            .collect(Collectors.toMap(HashMap.Entry::getKey, HashMap.Entry::getValue,
+//                                    (oldValue, newValue) -> oldValue, LinkedHashMap::new));
                     
-
-                    for (HashMap.Entry entry : sortedFreq.entrySet()) {
+                    for (HashMap.Entry entry : unsortedFreq.entrySet()) {
                         String tfFormatted = entry.getKey().toString()+ ":"+ entry.getValue().toString() + ", "; 
                         stringBuilder.append(tfFormatted);
-//                      System.out.print("\t"+entry.getKey()+ ":"+ entry.getValue());
                     }
+                    
 //                    System.out.println(key.toString() + "-> " + stringBuilder.toString());
                     Text outputString = new Text(stringBuilder.toString());
 					output.write("TermFrequencies", key, outputString);
@@ -193,10 +211,7 @@ public class MyIndexer extends Configured implements Tool {
 		
 		Configuration conf = getConf();
 
-		// The following two lines instruct Hadoop/MapReduce to run in local
-		// mode. In this mode, mappers/reducers are spawned as thread on the
-		// local machine, and all URLs are mapped to files in the local disk.
-		// Remove these lines when executing your code against the cluster.
+		// TODO - REMOVE TWO LINES 
 		conf.set("mapreduce.framework.name", "local");
         conf.set("fs.defaultFS", "file:///");
         
@@ -210,11 +225,12 @@ public class MyIndexer extends Configured implements Tool {
 		job.setJarByClass(MyIndexer.class);
 
 		job.setMapperClass(Map.class);
-		job.setCombinerClass(Reduce.class);
 		job.setReducerClass(Reduce.class);
 		
+		// TODO - COMMENT OUT STOPWORDPATH
 	// adds the path to stopwords.txt to a distributed cache (first argument)
-		String stopWordsPath = "src/main/resources/stopword-list.txt"; 
+		String stopWordsPath = "src/main/resources/stopword-list-2.txt"; 
+		// String stopWordsPath = "/user/2128536l/stopword-list.txt"; 
 
 		job.addCacheFile(new Path(stopWordsPath).toUri());
 
@@ -230,6 +246,17 @@ public class MyIndexer extends Configured implements Tool {
 //		job.setOutputFormatClass(TextOutputFormat.class);
 		
 		FileOutputFormat.setOutputPath(job, new Path(args[1]));
+		
+		job.waitForCompletion(true);
+
+		Counters counters = job.getCounters();
+		long numRecords = counters.getGroup("MyIndexer$Map$Counters").findCounter("NUM_RECORDS").getValue();
+		long docLength = counters.getGroup("MyIndexer$Map$Counters").findCounter("DOC_LENGTH").getValue();
+		int avgDocLength =  (int) Math.round((double) docLength / numRecords);
+		
+		System.out.println("==== OTHER METRICS ==="); 
+		System.out.println("NUMBER OF DOCUMENTS: "+ numRecords); 
+		System.out.println("AVERAGE DOCUMENT LENGTH: "+ avgDocLength + "\n"); 
 
 		return (job.waitForCompletion(true) ? 0 : 1);
 	}
