@@ -147,15 +147,16 @@ public class MyIndexer extends Configured implements Tool {
 		
 		
 			// dealing with document frequency
-			if (key.toString().endsWith(":")){				
+			if (key.toString().endsWith(":")){	
+				
 				for (Text v : values) {
 					String docName = key.toString().replace("*", "");
 					
 //					System.out.println(key.toString()+": "+v.toString());
 					output.write("DocumentFrequencies", key, new Text(v.toString()));
-
 				}
 					
+						
 				}else {
 					
 					// otherwise we are dealing with the term frequency
@@ -175,12 +176,10 @@ public class MyIndexer extends Configured implements Tool {
 	                        
                         } catch (Exception e) {
                         	
-                        	System.out.println("EXCEPTION=" + stringFreq + "==" +  v.toString() );
+                        	System.out.println("exception=" + stringFreq + "==" +  v.toString() );
                         	
                         }
-//                      
 					}
-					
 					
 //                    HashMap<String, Integer> sortedFreq = unsortedFreq.entrySet().stream()
 //                            .sorted(HashMap.Entry.comparingByValue(Comparator.reverseOrder()))
