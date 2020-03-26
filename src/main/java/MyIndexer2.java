@@ -3,12 +3,18 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.net.URI;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 import java.util.Set;
 import java.util.StringTokenizer;
 import org.apache.hadoop.util.StringUtils;
@@ -33,6 +39,9 @@ import org.apache.hadoop.mapreduce.Counter;
 import org.apache.hadoop.mapreduce.Counters;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
+
+import com.google.common.collect.Lists;
+
 import utils.PorterStemmer;
 
 public class MyIndexer2 extends Configured implements Tool {
@@ -177,23 +186,35 @@ public class MyIndexer2 extends Configured implements Tool {
 				System.out.println();
 				Text term = key; 
 				
-				for (IndexWritable value : values) {
-						
-					Text docName = value.getDocName(); 
-					
-					IntWritable termFreq = value.getTermFrequency(); 
-					
-					System.out.println(term+"\t"+docName+":"+termFreq);
-					
-//					output.write("DocumentFrequencies", docName, new Text(docLength));
-				
-				
+				ArrayList<String> tempVal = new ArrayList<String>(); 
+															
+	
+				for (final IndexWritable value : values) {
+										
+					String docName = value.getDocName().toString(); 
+					Integer termFreq = value.getTermFrequency().get();
+					String tempString = termFreq + "-" + docName;
+					tempVal.add(tempString);
+								
 				}
+				
+				Collections.sort(tempVal, Collections.reverseOrder());
+								
+                StringBuilder stringBuilder = new StringBuilder(100);
+                			
+				for (String tempS : tempVal) {
+					
+					String[] vals = tempS.split("-");
+					String tfFormatted = vals[1]+":"+vals[0]+", ";
+                    stringBuilder.append(tfFormatted);
 				}
 
-		
-		
-		
+                Text outputString = new Text(stringBuilder.toString());
+                System.out.println(term + "\t" + outputString); 
+				output.write("TermFrequencies", term, outputString);
+			
+			}
+
 		}
 		  @Override
 		  public void cleanup(Context context) throws IOException, InterruptedException
@@ -210,8 +231,8 @@ public class MyIndexer2 extends Configured implements Tool {
 		Configuration conf = getConf();
 
 		// TODO - REMOVE TWO LINES 
-		conf.set("mapreduce.framework.name", "local");
-        conf.set("fs.defaultFS", "file:///");
+//		conf.set("mapreduce.framework.name", "local");
+//        conf.set("fs.defaultFS", "file:///");
         
         conf.set("textinputformat.record.delimiter", "\n[[");
 
@@ -227,8 +248,8 @@ public class MyIndexer2 extends Configured implements Tool {
 		
 		// TODO - COMMENT OUT STOPWORDPATH
 	    // adds the path to stopwords.txt to a distributed cache (first argument)
-		String stopWordsPath = "src/main/resources/stopword-list-2.txt"; 
-		// String stopWordsPath = "/user/2128536l/stopword-list.txt"; 
+//		String stopWordsPath = "src/main/resources/stopword-list-2.txt"; 
+		 String stopWordsPath = "/user/2128536l/stopword-list.txt"; 
 
 		job.addCacheFile(new Path(stopWordsPath).toUri());
 

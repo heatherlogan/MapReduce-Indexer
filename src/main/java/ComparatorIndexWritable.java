@@ -16,8 +16,10 @@ public class ComparatorIndexWritable extends WritableComparator {
 		IndexWritable obj1 = (IndexWritable)a;
 		IndexWritable obj2 = (IndexWritable)b; 
 		
-		return obj1.compareTo(obj2); 
 		
+//		return -obj1.getTermFreqMap().compareTo(obj2.getTermFreqMap()); 
+		return 0; 
+
 		
 	}
 	

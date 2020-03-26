@@ -1,0 +1,1 @@
+/tmp/hadoop-heatherlogan/mapred/local/1585175441105/stopword-list-2.txt

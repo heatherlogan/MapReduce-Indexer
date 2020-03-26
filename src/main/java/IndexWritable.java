@@ -153,5 +153,3 @@ public class IndexWritable implements WritableComparable<IndexWritable> {
 
 
 }
-
-
