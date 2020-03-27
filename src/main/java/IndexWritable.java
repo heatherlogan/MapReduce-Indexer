@@ -9,24 +9,25 @@ import org.apache.hadoop.io.WritableComparable;
 
 public class IndexWritable implements WritableComparable<IndexWritable> {
 	
-
-	private IntWritable docLength; 
-
+	private Text term; 
 	private Text docName; 
 	private IntWritable termFrequency;
-	
+	private IntWritable docLength; 
+
 	
 	// constructors
 	
 	public IndexWritable() {
-		docLength = new IntWritable(); 
-		docName = new Text(); 
-		termFrequency = new IntWritable();
+		docLength = new IntWritable(0); 
+		docName = new Text(""); 
+		term = new Text(""); 
+		termFrequency = new IntWritable(0);
 	
 	}
 	
-	public IndexWritable(Text docName, IntWritable termFrequency) {
+	public IndexWritable(Text term, Text docName, IntWritable termFrequency) {
 		super();
+		setTerm(term); 
 		setDocumentName(docName);
 		setTermFrequency(termFrequency);
 	}
@@ -49,7 +50,9 @@ public class IndexWritable implements WritableComparable<IndexWritable> {
 	public void setTermFrequency(IntWritable termFrequency) {
 		this.termFrequency = termFrequency; 
 	}
-	
+	public void setTerm(Text term) {
+		this.term = term; 
+	}
 	
 	// getters
 	
@@ -65,7 +68,9 @@ public class IndexWritable implements WritableComparable<IndexWritable> {
 		return this.termFrequency; 
 	}
 
-	
+	public Text getTerm() {
+		return term; 
+	}
 	
 	// methods
 	
@@ -73,16 +78,15 @@ public class IndexWritable implements WritableComparable<IndexWritable> {
 	public void readFields(DataInput in) throws IOException {
 		docLength.readFields(in);
 		docName.readFields(in);
+		term.readFields(in);
 		termFrequency.readFields(in);
-		
-	
-		
 	}
 
 	@Override
 	public void write(DataOutput out) throws IOException {
 		docLength.write(out);
 		docName.write(out);
+		term.write(out);
 		termFrequency.write(out); 
 		
 	}
@@ -99,9 +103,22 @@ public class IndexWritable implements WritableComparable<IndexWritable> {
 		int thisTF = this.termFrequency.get();
 		int otherTF = idx.getTermFrequency().get(); 
 		
-        return (thisTF < otherTF ? -1 : (thisTF==otherTF ? 0 : 1));
-		
-	} 
+		int result = this.getTerm().compareTo(idx.getTerm()); //compare term alphabetically
+	
+		if (result == 0) {
+			
+			int termFreqResult =  -(thisTF < otherTF ? -1 : (thisTF==otherTF ? 0 : 1));
+			
+			if (termFreqResult == 0) {
+				
+				int docResult = this.getDocName().compareTo(idx.getDocName());  // compare docNames alphabetically
+				
+				return docResult; 
+			} 
+			return termFreqResult; 
+		}
+		return result; 
+}
 
 	
 	@Override
