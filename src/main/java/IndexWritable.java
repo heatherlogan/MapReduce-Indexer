@@ -103,6 +103,8 @@ public class IndexWritable implements WritableComparable<IndexWritable> {
 		int thisTF = this.termFrequency.get();
 		int otherTF = idx.getTermFrequency().get(); 
 		
+		// order by term, then term frequency, then document name
+		
 		int result = this.getTerm().compareTo(idx.getTerm()); //compare term alphabetically
 	
 		if (result == 0) {

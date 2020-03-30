@@ -33,22 +33,17 @@ import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.mapreduce.lib.output.LazyOutputFormat;
 import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
-import org.apache.hadoop.mapreduce.lib.input.FileSplit;
 import org.apache.hadoop.mapreduce.lib.output.MultipleOutputs;
-import org.apache.hadoop.mapreduce.Counter;
 import org.apache.hadoop.mapreduce.Counters;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
 
-import com.google.common.collect.Lists;
-
-import javafx.util.Pair;
 import utils.PorterStemmer;
 
 public class MyIndexer extends Configured implements Tool {
 	
 	
-	static class Map extends Mapper<LongWritable, Text, Text, IndexWritable> {
+	static class Map extends Mapper<LongWritable, Text, IndexWritable, Text> {
 		
 		private final static IntWritable one = new IntWritable(1);		
 		public static final String Entry = null;
@@ -65,7 +60,7 @@ public class MyIndexer extends Configured implements Tool {
 		
 		protected void setup(Context context) throws IOException, InterruptedException {
 						
-		// load stopwords from given filename
+		// load stopwords from url into set of stopwords
 		
 			URI[] stopwordpath = context.getCacheFiles();
 	        BufferedReader br = new BufferedReader(new FileReader(new File(stopwordpath[0].getPath()).getName()));
@@ -79,18 +74,23 @@ public class MyIndexer extends Configured implements Tool {
 		public void map(LongWritable key, Text value, Context context) throws
 		IOException, InterruptedException {
 						
+			// term frequency map stores each term; occurrence pair per document. 
 			HashMap<String, Integer> termFrequencyMap = new HashMap<String, Integer>();
 
 			int documentLength=0; 
 						
-			// split value input to filename and document contents
+			// Split value input to filename and document contents
 			String line = value.toString();
 			String [] nameline = line.split("]]");
+			
+			// checks for invalid docs
 			 if (nameline.length == 1)
 				System.out.println(line);
-			String documentName = nameline[0].toLowerCase().replace("[", "").replace("]","");
 			
-			// remove punctuation from document text 
+			 // formats document name 
+			 String documentName = nameline[0].toLowerCase().replace("[", "").replace("]","");
+			
+			// Remove punctuation from document text 
 			String documentContents = nameline.length > 1 ? nameline[1].replaceAll("[^a-zA-Z ]", "").toLowerCase() : ""; 
 			
 			StringTokenizer tokenizer = new StringTokenizer(documentContents);
@@ -101,34 +101,36 @@ public class MyIndexer extends Configured implements Tool {
 				// if word is not a stop word, add
 				if (!stopWordList.contains(this.word.toString())){
 					
+					// increment doc counter 
 					documentLength += 1; 
 					
 					// stem word with PorterStemmer
 					String stemmedWord = stemmer.stem(this.word.toString());
 					
+					// if word has already been seen, get its occurrence and increment
 					if (termFrequencyMap.containsKey(stemmedWord)) {
 						
 						Integer frequency = termFrequencyMap.get(stemmedWord); 
-						
 						Integer tf = frequency + 1; 
-												
 						termFrequencyMap.put(stemmedWord, tf);
 						
 					} else {
+						
+						// otherwise word is unseen and occurrence is now 1
 						termFrequencyMap.put(stemmedWord, 1); 
 					}
 				} 
 			} 
 			
+			// increment counters for avg doc length + num. records metrics 
 			context.getCounter(Counters.NUM_RECORDS).increment(1);
 			context.getCounter(Counters.DOC_LENGTH).increment(documentLength);
 			
 			IndexWritable docLengthWritable = new IndexWritable();
-			
+			docLengthWritable.setDocumentName(new Text(documentName));
 			docLengthWritable.setDocumentLength(new IntWritable(documentLength)); 
 			
-			context.write(new Text(documentName + ":"), docLengthWritable);
-
+			context.write(docLengthWritable, new Text("DocLengths"));
 		
 //			 writing the term frequencies to a map
 			for (HashMap.Entry entry : termFrequencyMap.entrySet()) {
@@ -137,69 +139,87 @@ public class MyIndexer extends Configured implements Tool {
 	            Integer termFreq = (Integer) entry.getValue(); 
 	            
 	            IndexWritable docFreqWritable = new IndexWritable(); 
+	      
+	            docFreqWritable.setTerm(term);
 	            docFreqWritable.setDocumentName(new Text(documentName));
 	            docFreqWritable.setTermFrequency(new IntWritable(termFreq));
-	            
-	           
-	            context.write(term, docFreqWritable); 
+
+	            context.write(docFreqWritable, new Text("TermFreqs")); 
       
 	        }
-			
 		}
 	}
+	
+	
 
-	public static class Reduce extends Reducer<Text, IndexWritable, Text, Text> {
+	public static class Reduce extends Reducer<IndexWritable, Text, Text, Text> {
 		
 		private MultipleOutputs output; 
 		private StringBuilder previousTerm ; 
+		private StringBuilder outputFormatted; 
 		
 		public void setup(Context context) {
+			
 			output = new MultipleOutputs<>(context);
-		
+			previousTerm = new StringBuilder(); 
+			outputFormatted = new StringBuilder(); 
 			
 		}
 		
-		public void reduce(Text key, Iterable <IndexWritable> values, Context
+		public void reduce(IndexWritable compositeKey, Iterable <Text> values, Context
 				context) throws IOException, InterruptedException {
 			
-			if (key.toString().endsWith(":")) {
+			for (Text value: values) {
 				
-				// dealing with document frequencies 
-								
-				for (IndexWritable value : values) {
-					Text docName = key; 
-					String docLength = String.valueOf(value.getDocLength()); 
-					output.write("DocumentFrequencies", docName, new Text(docLength));
-				} 
-				
-			} else {
-				
-				// dealing with termFrequency values
-				
-				Text term = key; 		
-
-                StringBuilder stringBuilder = new StringBuilder(100);
-                stringBuilder.append(" | "); 
-
-				for (final IndexWritable value : values) {
-										
-					String docName = value.getDocName().toString(); 
-					Integer termFreq = value.getTermFrequency().get();
+				if (value.toString().equals("DocLengths")) {
 					
-
- 					String tfFormatted = docName+":"+ termFreq +", ";
-                    stringBuilder.append(tfFormatted);
+					// dealing with doc frequencies
+					int docLength = compositeKey.getDocLength().get(); 
+//					
+					output.write("DocumentFrequencies", compositeKey.getDocName(), new Text(String.valueOf(docLength)));
 				}
+				else {
+					
+					// dealing with term frequencies
+					
+					Text term = compositeKey.getTerm(); 
+					Text docName = compositeKey.getDocName(); 
+					int termFreq = compositeKey.getTermFrequency().get(); 
+					String formattedFreq = docName +":"+ String.valueOf(termFreq)+", "; 
+					
+					// if term=previous term, then add the new term frequency info to output
+					
+					if (previousTerm.toString().equals(term.toString())) {
+						
+						outputFormatted.append(formattedFreq); 
+						
+						
+					} else {
+						
+						// onto a new term: write previous term+ string to output
+																								
+		   	   			output.write("TermFrequencies", previousTerm, outputFormatted);
+						
+		   	   			// reset values and append current 
+	
+						previousTerm = new StringBuilder(); 
+						previousTerm.append(term.toString());
+						
+						outputFormatted = new StringBuilder(); 	
+						outputFormatted.append("| "); 
+						outputFormatted.append(formattedFreq); 
+					}
 
-                 Text outputString = new Text(stringBuilder.toString());
-   	   			 output.write("TermFrequencies", term, outputString);
-			
+				}
 			}
 		}
+		
 		  @Override
 		  public void cleanup(Context context) throws IOException, InterruptedException
 		  {
-		      output.close();
+			// write last term 
+ 	   		output.write("TermFrequencies", previousTerm, outputFormatted);
+		    output.close();
 		  }
 	}
 	
@@ -208,42 +228,46 @@ public class MyIndexer extends Configured implements Tool {
 	public int run(String[] args) throws Exception {
 		
 		Configuration conf = getConf();
+		
+//		conf.set("mapreduce.framework.name", "local");
+//      conf.set("fs.defaultFS", "file:///");
 
-		conf.set("mapreduce.framework.name", "local");
-        conf.set("fs.defaultFS", "file:///");
-        
-        conf.set("textinputformat.record.delimiter", "\n[[");
+		// splits each document by the heading 
+		conf.set("textinputformat.record.delimiter", "\n[[");
+		
+		// increasing memory assigned to reducers to fix memory issue
+		conf.set("mapreduce.reduce.java.opts",  "-Xmx2048m");
 
 		Job job = Job.getInstance(conf, "MyIndexer");
 		
+		// two outputs for document / term freq information 
 		MultipleOutputs.addNamedOutput(job, "DocumentFrequencies", TextOutputFormat.class, Text.class, Text.class);
 		MultipleOutputs.addNamedOutput(job, "TermFrequencies", TextOutputFormat.class, Text.class, Text.class);
 		
 		job.setJarByClass(MyIndexer.class);
-
 		job.setMapperClass(Map.class);
 		job.setReducerClass(Reduce.class);
 		
+		job.setNumReduceTasks(150);
+		
 	    // adds the path to stopwords.txt to a distributed cache (first argument)
-		
-		String stopWordsPath = "src/main/resources/stopword-list-2.txt"; 
-		
-//		String stopWordsPath = "/user/2128536l/stopword-list.txt"; 
-
+		String stopWordsPath = "/user/2128536l/stopword-list.txt";
+				
 		job.addCacheFile(new Path(stopWordsPath).toUri());
 
 		// sets file input to second argument
 		job.setInputFormatClass(TextInputFormat.class);
 		FileInputFormat.setInputPaths(job, new Path(args[0]));
 		
-		
-		job.setOutputKeyClass(Text.class);
-		job.setOutputValueClass(IndexWritable.class);
+		job.setOutputKeyClass(IndexWritable.class);
+		job.setOutputValueClass(Text.class);
 		
 		// stops creation of empty file for context
 		LazyOutputFormat.setOutputFormatClass(job, TextOutputFormat.class);
-//		job.setOutputFormatClass(TextOutputFormat.class);
-//		job.setSortComparatorClass(ComparatorIndexWritable.class);
+		
+		// comparator and partition for secondary sorting
+		job.setSortComparatorClass(ComparatorIndexWritable.class);
+		job.setPartitionerClass(CustomPartition.class);
 
 		FileOutputFormat.setOutputPath(job, new Path(args[1]));
 		
